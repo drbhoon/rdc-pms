@@ -54,8 +54,8 @@ const SAMPLE_EMPLOYEES = {
 const CYCLES = ['Annual 2026', 'Mid-Year 2026', 'Probation Extension', 'Training Extension'];
 
 // ── Store singleton ───────────────────────────────────────────────────────
-let _store = null;
-
+// Use global to survive Next.js dev-mode hot-reloads (module re-evaluation
+// clears module-level variables, but global persists across reloads).
 function buildEmptyRow(emp, roleKey, cycle, pairId, rowType) {
   return {
     EMP_CODE:           emp.EMP_CODE,
@@ -94,13 +94,16 @@ function buildEmptyRow(emp, roleKey, cycle, pairId, rowType) {
 }
 
 export function getMockStore() {
-  if (_store) return _store;
+  if (global.__pmsStore) return global.__pmsStore;
 
-  _store = {
+  global.__pmsStore = {
     // { roleKey: { rows: object[], headers: string[], sheetGid: 0, nextSeq: number } }
     roles: {},
     auditLog: [],
   };
+
+  // Keep local alias for the init block below
+  const _store = global.__pmsStore;
 
   // Pre-populate each role with sample employees for the first cycle
   for (const [roleKey, employees] of Object.entries(SAMPLE_EMPLOYEES)) {
@@ -123,7 +126,7 @@ export function getMockStore() {
     };
   }
 
-  return _store;
+  return global.__pmsStore;
 }
 
 // ── Mock operation helpers (called by workflow.js in mock mode) ──────────
