@@ -5,9 +5,10 @@
   "description": "RDC Performance Management System – RM/BH workflow via Google Sheets",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start -p 3000",
-    "lint": "next lint"
+    "build": "prisma generate && prisma migrate deploy && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^7.6.0",
