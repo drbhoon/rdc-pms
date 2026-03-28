@@ -17,12 +17,8 @@ export const MOCK_HEADERS = [
   'EMP_CODE', 'EMP_NAME', 'ROLE', 'CYCLE', 'ROW_TYPE', 'ASSESSMENT_PAIR_ID',
   // Narrative (near front for HR readability)
   'RECOMMENDATION', 'COMMENTS', 'GROWTH_POTENTIAL', 'KEY_REMARKS',
-  // Ratings (Q1–Q5)
-  'Q1_RATING', 'Q1_COMMENT',
-  'Q2_RATING', 'Q2_COMMENT',
-  'Q3_RATING', 'Q3_COMMENT',
-  'Q4_RATING', 'Q4_COMMENT',
-  'Q5_RATING', 'Q5_COMMENT',
+  // Ratings Q1–Q5 (no comment boxes – blue collar / trainee design)
+  'Q1_RATING', 'Q2_RATING', 'Q3_RATING', 'Q4_RATING', 'Q5_RATING',
   // Routing
   'RM_NAME', 'RM_EMAIL', 'BH_NAME', 'BH_EMAIL',
   // System / workflow
@@ -68,11 +64,7 @@ function buildEmptyRow(emp, roleKey, cycle, pairId, rowType) {
     COMMENTS:           '',
     GROWTH_POTENTIAL:   '',
     KEY_REMARKS:        '',
-    Q1_RATING: '', Q1_COMMENT: '',
-    Q2_RATING: '', Q2_COMMENT: '',
-    Q3_RATING: '', Q3_COMMENT: '',
-    Q4_RATING: '', Q4_COMMENT: '',
-    Q5_RATING: '', Q5_COMMENT: '',
+    Q1_RATING: '', Q2_RATING: '', Q3_RATING: '', Q4_RATING: '', Q5_RATING: '',
     RM_NAME:  emp.RM_NAME,
     RM_EMAIL: emp.RM_EMAIL,
     BH_NAME:  emp.BH_NAME,

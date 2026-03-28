@@ -1,183 +1,293 @@
 /**
- * Admin – Audit Log Viewer
- * Shows all audit actions with timestamps, filterable by role.
- * Also provides the super-admin unlock interface.
+ * admin/audit.js
+ * Audit Log & Unlock — view all audit events, super admin can unlock pairs.
  */
-import { useState, useEffect } from 'react';
-import Layout from '../../components/Layout';
+import { useState, useEffect, useCallback } from 'react';
+import AdminLayout from '../../components/AdminLayout';
 
 const ACTION_COLORS = {
-  ROW_SELECTED:   'bg-purple-100 text-purple-800',
-  ROW_UNSELECTED: 'bg-gray-100 text-gray-600',
-  RM_SUBMITTED:   'bg-blue-100 text-blue-800',
-  BH_ROW_CREATED: 'bg-teal-100 text-teal-800',
-  BH_SUBMITTED:   'bg-green-100 text-green-800',
-  ROW_LOCKED:     'bg-red-100 text-red-700',
-  ROW_UNLOCKED:   'bg-yellow-100 text-yellow-800',
-  CYCLE_CREATED:  'bg-indigo-100 text-indigo-800',
+  ROW_SELECTED:    'bg-purple-100 text-purple-700 border-purple-200',
+  ROW_UNSELECTED:  'bg-slate-100  text-slate-600  border-slate-200',
+  RM_SUBMITTED:    'bg-blue-100   text-blue-700   border-blue-200',
+  BH_ROW_CREATED:  'bg-teal-100   text-teal-700   border-teal-200',
+  BH_SUBMITTED:    'bg-green-100  text-green-700  border-green-200',
+  ROW_LOCKED:      'bg-red-100    text-red-700    border-red-200',
+  ROW_UNLOCKED:    'bg-yellow-100 text-yellow-700 border-yellow-200',
+  CYCLE_CREATED:   'bg-indigo-100 text-indigo-700 border-indigo-200',
+  PAIR_UNLOCKED:   'bg-orange-100 text-orange-700 border-orange-200',
 };
 
-export default function AuditLog() {
-  const [roles, setRoles]     = useState([]);
-  const [roleKey, setRoleKey] = useState('PI');
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
+function ActionBadge({ action }) {
+  const cls = ACTION_COLORS[action] || 'bg-slate-100 text-slate-600 border-slate-200';
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+      {action}
+    </span>
+  );
+}
 
-  // Unlock form
-  const [unlockForm, setUnlockForm] = useState({ pairId: '', rowType: 'RM', reason: '' });
-  const [unlockMsg, setUnlockMsg]   = useState('');
+// ── Page ──────────────────────────────────────────────────────────────────────
+export default function AuditPage({ user }) {
+  const isSuperAdmin = user?.role === 'HR_SUPER_ADMIN';
 
+  // Audit log state
+  const [roles, setRoles]         = useState([]);
+  const [cycles, setCycles]       = useState([]);
+  const [filterRole, setFilterRole]   = useState('');
+  const [filterCycle, setFilterCycle] = useState('');
+  const [filterAction, setFilterAction] = useState('');
+  const [entries, setEntries]     = useState([]);
+  const [loading, setLoading]     = useState(false);
+
+  // Unlock form state
+  const [unlockForm, setUnlockForm] = useState({ pairId: '', reason: '' });
+  const [unlocking, setUnlocking]   = useState(false);
+  const [unlockResult, setUnlockResult] = useState(null);
+
+  // Load roles
   useEffect(() => {
-    fetch('/api/roles')
+    fetch('/api/admin/roles')
       .then((r) => r.json())
-      .then((d) => {
-        setRoles(d.roles || []);
-        if (d.roles?.length) setRoleKey(d.roles[0].key);
-      });
+      .then((d) => setRoles(d.roles || []))
+      .catch(console.error);
   }, []);
 
-  useEffect(() => { if (roleKey) loadAudit(); }, [roleKey]);
+  // Load cycles when role filter changes
+  useEffect(() => {
+    if (!filterRole) { setCycles([]); return; }
+    fetch(`/api/admin/cycles?roleKey=${encodeURIComponent(filterRole)}`)
+      .then((r) => r.json())
+      .then((d) => setCycles(d.cycles || []))
+      .catch(console.error);
+  }, [filterRole]);
 
-  async function loadAudit() {
+  const loadAudit = useCallback(() => {
     setLoading(true);
-    setError('');
-    try {
-      const r = await fetch(`/api/audit?roleKey=${encodeURIComponent(roleKey)}&limit=200`);
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error);
-      setEntries(d.entries || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+    const params = new URLSearchParams();
+    if (filterRole)   params.set('roleKey', filterRole);
+    if (filterCycle)  params.set('cycle', filterCycle);
+    if (filterAction) params.set('action', filterAction);
+    fetch(`/api/admin/audit?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => setEntries(d.entries || []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [filterRole, filterCycle, filterAction]);
+
+  useEffect(() => { loadAudit(); }, [loadAudit]);
 
   async function handleUnlock(e) {
     e.preventDefault();
-    setUnlockMsg('');
+    if (unlockForm.reason.trim().length < 10) {
+      return setUnlockResult({ ok: false, message: 'Reason must be at least 10 characters.' });
+    }
+    setUnlocking(true);
+    setUnlockResult(null);
     try {
-      const r = await fetch('/api/admin/unlock', {
+      const res = await fetch('/api/admin/pairs/unlock', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-pms-user': 'admin@rdcconcrete.com' },
-        body: JSON.stringify({ roleKey, ...unlockForm }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(unlockForm),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error);
-      setUnlockMsg('Row unlocked successfully. Audit entry created.');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unlock failed');
+      setUnlockResult({ ok: true, message: `Pair ${unlockForm.pairId} unlocked successfully. An audit entry has been created.` });
+      setUnlockForm({ pairId: '', reason: '' });
       loadAudit();
     } catch (err) {
-      setUnlockMsg(`Error: ${err.message}`);
+      setUnlockResult({ ok: false, message: err.message });
+    } finally {
+      setUnlocking(false);
     }
   }
 
+  // All unique action types from loaded data (for filter dropdown)
+  const actionTypes = [...new Set(entries.map((e) => e.action || e.ACTION).filter(Boolean))].sort();
+
   return (
-    <Layout title="Audit Log & Admin Override">
-      {/* Role selector */}
-      <div className="flex items-center gap-3 mb-6">
-        <select className="form-select w-48" value={roleKey} onChange={(e) => setRoleKey(e.target.value)}>
-          {roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-        </select>
-        <button onClick={loadAudit} className="btn-secondary" disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
-      </div>
+    <AdminLayout title="Audit &amp; Unlock" user={user}>
+      <div className="space-y-6">
+        {/* ── Audit log ── */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
+            <h2 className="text-sm font-semibold text-slate-700 mr-auto">Audit Log</h2>
 
-      {/* Super admin unlock */}
-      <div className="card mb-6">
-        <h3 className="text-sm font-semibold text-red-700 uppercase tracking-wide mb-3">
-          Super Admin – Unlock Row
-        </h3>
-        <form onSubmit={handleUnlock} className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="form-label">Assessment Pair ID</label>
-            <input
-              type="text"
-              className="form-input w-64"
-              value={unlockForm.pairId}
-              onChange={(e) => setUnlockForm((p) => ({ ...p, pairId: e.target.value }))}
-              placeholder="EMP001_PI_2026_Annual_0001"
-              required
-            />
-          </div>
-          <div>
-            <label className="form-label">Row Type</label>
-            <select className="form-select" value={unlockForm.rowType} onChange={(e) => setUnlockForm((p) => ({ ...p, rowType: e.target.value }))}>
-              <option value="RM">RM</option>
-              <option value="BH">BH</option>
+            {/* Filters */}
+            <select
+              value={filterRole}
+              onChange={(e) => { setFilterRole(e.target.value); setFilterCycle(''); }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value="">All Roles</option>
+              {roles.map((r) => (
+                <option key={r.roleKey} value={r.roleKey}>{r.roleLabel || r.roleKey}</option>
+              ))}
             </select>
-          </div>
-          <div>
-            <label className="form-label">Reason (required)</label>
-            <input
-              type="text"
-              className="form-input w-64"
-              value={unlockForm.reason}
-              onChange={(e) => setUnlockForm((p) => ({ ...p, reason: e.target.value }))}
-              placeholder="Enter unlock reason…"
-              required
-              minLength={5}
-            />
-          </div>
-          <button type="submit" className="btn-danger">Unlock Row</button>
-        </form>
-        {unlockMsg && (
-          <div className={`mt-2 text-sm ${unlockMsg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
-            {unlockMsg}
-          </div>
-        )}
-      </div>
 
-      {error && <div className="bg-red-50 border border-red-200 rounded px-4 py-2 text-red-700 text-sm mb-4">{error}</div>}
+            <select
+              value={filterCycle}
+              onChange={(e) => setFilterCycle(e.target.value)}
+              disabled={!filterRole}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
+            >
+              <option value="">All Cycles</option>
+              {cycles.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
 
-      {/* Audit table */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-600 uppercase">
-            Audit Entries ({entries.length})
-          </h3>
+            <select
+              value={filterAction}
+              onChange={(e) => setFilterAction(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value="">All Actions</option>
+              {actionTypes.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={loadAudit}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-all"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="px-6 py-12 text-center text-sm text-slate-400">Loading audit entries…</div>
+          ) : entries.length === 0 ? (
+            <div className="px-6 py-12 text-center text-sm text-slate-400">No audit entries found for the selected filters.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    {['Timestamp', 'Action', 'Employee', 'Cycle', 'Performed By', 'Details'].map((h) => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {entries.map((e, i) => {
+                    const action    = e.action    || e.ACTION;
+                    const empCode   = e.empCode   || e.EMP_CODE;
+                    const empName   = e.empName   || e.EMP_NAME;
+                    const cycle     = e.cycle     || e.CYCLE;
+                    const by        = e.performedBy || e.PERFORMED_BY;
+                    const details   = e.details   || e.DETAILS;
+                    const ts        = e.timestamp || e.TIMESTAMP || e.createdAt;
+                    return (
+                      <tr key={e.id || i} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 text-xs font-mono text-slate-500 whitespace-nowrap">
+                          {ts ? new Date(ts).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                        </td>
+                        <td className="px-4 py-3"><ActionBadge action={action} /></td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-800 text-xs">{empName || '—'}</div>
+                          {empCode && <div className="font-mono text-xs text-slate-400">{empCode}</div>}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600">{cycle || '—'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600">{by || '—'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate" title={details}>{details || '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="px-6 py-3 border-t border-slate-100 text-xs text-slate-400">
+                {entries.length} audit entr{entries.length !== 1 ? 'ies' : 'y'}
+              </div>
+            </div>
+          )}
         </div>
 
-        {entries.length === 0 && !loading ? (
-          <div className="text-center text-gray-400 py-6">No audit entries found.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Action</th>
-                  <th>Pair ID</th>
-                  <th>Emp Code</th>
-                  <th>Name</th>
-                  <th>Cycle</th>
-                  <th>Performed By</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((e, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="text-xs font-mono text-gray-500">{e.TIMESTAMP?.slice(0, 16)}</td>
-                    <td>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLORS[e.ACTION] || 'bg-gray-100 text-gray-600'}`}>
-                        {e.ACTION}
-                      </span>
-                    </td>
-                    <td className="text-xs font-mono">{e.ASSESSMENT_PAIR_ID}</td>
-                    <td className="font-mono text-sm">{e.EMP_CODE}</td>
-                    <td>{e.EMP_NAME}</td>
-                    <td className="text-xs">{e.CYCLE}</td>
-                    <td className="text-xs">{e.PERFORMED_BY}</td>
-                    <td className="text-xs text-gray-500">{e.DETAILS}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* ── Super Admin Unlock ── */}
+        {isSuperAdmin && (
+          <div className="bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-red-100 bg-red-50">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                </svg>
+                <h2 className="text-sm font-semibold text-red-700">Unlock Assessment (Super Admin Only)</h2>
+              </div>
+              <p className="text-xs text-red-600 mt-1">
+                This action reopens a submitted assessment for editing. All changes are logged.
+              </p>
+            </div>
+
+            <div className="p-6">
+              {unlockResult && (
+                <div className={`mb-5 rounded-lg border px-4 py-3 text-sm ${
+                  unlockResult.ok
+                    ? 'bg-green-50 border-green-200 text-green-700'
+                    : 'bg-red-50 border-red-200 text-red-700'
+                }`}>
+                  {unlockResult.message}
+                </div>
+              )}
+
+              <form onSubmit={handleUnlock} className="space-y-4 max-w-lg">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Assessment Pair ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    value={unlockForm.pairId}
+                    onChange={(e) => setUnlockForm((f) => ({ ...f, pairId: e.target.value }))}
+                    required
+                    placeholder="e.g. pair_abc123def456"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Enter the internal pair ID shown in the pairs table.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Reason <span className="text-red-500">*</span>
+                    <span className="text-slate-400 font-normal ml-1">(minimum 10 characters)</span>
+                  </label>
+                  <textarea
+                    value={unlockForm.reason}
+                    onChange={(e) => setUnlockForm((f) => ({ ...f, reason: e.target.value }))}
+                    required
+                    minLength={10}
+                    rows={3}
+                    placeholder="Describe why this assessment needs to be unlocked…"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-none focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  <p className={`text-xs mt-1 ${unlockForm.reason.length < 10 && unlockForm.reason.length > 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {unlockForm.reason.length} / 10 characters minimum
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={unlocking || unlockForm.reason.trim().length < 10 || !unlockForm.pairId.trim()}
+                  className="rounded-lg bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {unlocking ? 'Unlocking…' : 'Unlock Assessment'}
+                </button>
+              </form>
+            </div>
           </div>
         )}
       </div>
-    </Layout>
+    </AdminLayout>
   );
+}
+
+export async function getServerSideProps({ req }) {
+  const raw = req.cookies?.pms_session;
+  if (!raw) return { redirect: { destination: '/admin/login', permanent: false } };
+  try {
+    const user = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+    return { props: { user } };
+  } catch {
+    return { redirect: { destination: '/admin/login', permanent: false } };
+  }
 }

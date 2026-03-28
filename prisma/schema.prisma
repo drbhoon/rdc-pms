@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Role Templates ─────────────────────────────────────────────────────────
+// One record per role. questions is a JSONB array:
+//   [{ key, label, fieldType: 'rating'|'narrative'|'number'|'date', order }]
+model RoleTemplate {
+  id        String   @id @default(cuid())
+  roleKey   String   @unique
+  roleLabel String
+  questions Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employees Employee[]
+  pairs     AssessmentPair[]
+}
+
+// ── Employees ──────────────────────────────────────────────────────────────
+// Uploaded via Excel. Extra profile columns stored in profileData JSONB.
+model Employee {
+  id          String   @id @default(cuid())
+  empCode     String
+  empName     String
+  roleKey     String
+  profileData Json     @default("{}")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  role  RoleTemplate   @relation(fields: [roleKey], references: [roleKey])
+  pairs AssessmentPair[]
+
+  @@unique([empCode, roleKey])
+}
+
+// ── Assessment Pairs ───────────────────────────────────────────────────────
+// One pair = one complete RM+BH assessment cycle for an employee.
+// Answers stored as JSONB — fully dynamic, no schema change when questions change.
+model AssessmentPair {
+  id            String     @id @default(cuid())
+  pairId        String     @unique
+  empCode       String
+  empName       String
+  roleKey       String
+  cycle         String
+  rmName        String
+  rmEmail       String
+  bhName        String
+  bhEmail       String
+  status        PairStatus @default(PENDING_RM)
+  lockStatus    LockStatus @default(UNLOCKED)
+  selectedBy    String?
+  selectedOn    DateTime?
+  rmSubmittedOn DateTime?
+  bhSubmittedOn DateTime?
+  lastUpdatedBy String?
+  lastUpdatedOn DateTime?
+  rmToken       String     @unique @default(cuid())
+  bhToken       String     @unique @default(cuid())
+  rmAnswers     Json?
+  bhAnswers     Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  role     RoleTemplate @relation(fields: [roleKey], references: [roleKey])
+  employee Employee     @relation(fields: [empCode, roleKey], references: [empCode, roleKey])
+  logs     AuditLog[]
+}
+
+// ── Audit Log ──────────────────────────────────────────────────────────────
+model AuditLog {
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
+  action      String
+  pairId      String?
+  empCode     String?
+  empName     String?
+  roleKey     String?
+  cycle       String?
+  performedBy String
+  details     Json?
+
+  pair AssessmentPair? @relation(fields: [pairId], references: [pairId])
+}
+
+// ── HR Users ───────────────────────────────────────────────────────────────
+model HrUser {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      HrRole   @default(HR_ADMIN)
+  password  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+enum PairStatus {
+  PENDING_RM
+  RM_SUBMITTED
+  PENDING_BH
+  FINALIZED
+}
+
+enum LockStatus {
+  UNLOCKED
+  LOCKED
+}
+
+enum HrRole {
+  HR_ADMIN
+  HR_SUPER_ADMIN
+}

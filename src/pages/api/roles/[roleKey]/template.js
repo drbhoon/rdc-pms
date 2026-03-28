@@ -24,10 +24,7 @@ export default async function handler(req, res) {
       type: classifyColumn(h),
     }));
 
-    const questionGroups = getQuestionGroups(
-      groups[COLUMN_TYPES.RATING] || [],
-      groups[COLUMN_TYPES.RATING_COMMENT] || []
-    );
+    const questionGroups = getQuestionGroups(groups[COLUMN_TYPES.RATING] || []);
 
     return res.status(200).json({
       roleKey,

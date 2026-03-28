@@ -10,9 +10,19 @@ out/
 .env.local
 .env.*.local
 
-# service account key file (if stored separately)
+# service account / OAuth key files
 serviceAccount.json
 credentials.json
+OA-*.json
+oauth_client*.json
+refresh_token.txt
+
+# Prisma generated client
+/src/generated/
+
+# dev utility scripts
+get-token.js
+dev.log
 
 # OS
 .DS_Store
@@ -25,3 +35,5 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+/src/generated/prisma
