@@ -52,20 +52,22 @@ function classifyHeader(header) {
     return 'profile';
 
   // ── Numbered questions → rating  (handles leading spaces too)
+  // Only columns with a leading digit (e.g. "1. Knowledge of Job") are assessment questions
   if (/^\s*\d+[\.\)]\s/.test(raw))   return 'rating';
   if (/^Q\d+_RATING$/i.test(raw))    return 'rating';
 
-  // ── Date
-  if (/\b(date|doj|dob|joining|born|since|expir)/i.test(raw)) return 'date';
+  // ── Narrative assessment questions (filled by RM/BH in the form)
+  // Only classified as narrative if they explicitly look like RM/BH answer fields
+  if (/\b(recommend|absorption|justification)\b/i.test(raw)) return 'narrative';
 
-  // ── Number
-  if (/\b(stipend|salary|amount|volume|count|strength|number)\b/i.test(raw)) return 'number';
+  // ── Date / Number / For-Sales fields → profile (employee info, NOT scored questions)
+  // These are pre-filled from the employee data upload, not entered by RM/BH
+  if (/\b(date|doj|dob|joining|born|since|expir)/i.test(raw))          return 'profile';
+  if (/\b(stipend|salary|amount|strength|count)\b/i.test(raw))         return 'profile';
+  if (/\b(comment|remark|observation|feedback|summary|suggestion|sales|volume|number)\b/i.test(raw))
+    return 'profile';
 
-  // ── Narrative
-  if (/\b(recommend|absorption|comment|remark|observation|feedback|summary|potential|suggestion|justification|sales)\b/i.test(raw))
-    return 'narrative';
-
-  // Unknown → profile (safer default — HR can promote to question)
+  // Unknown → profile (safer default — HR can promote to question type if needed)
   return 'profile';
 }
 
