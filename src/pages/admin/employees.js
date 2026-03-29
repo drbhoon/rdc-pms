@@ -220,9 +220,11 @@ function EmployeeTable({ roles, triggerRoleKey }) {
     );
   });
 
-  const coreKeys = new Set(['empCode', 'empName', 'active', 'id', 'roleKey', 'createdAt', 'updatedAt']);
+  // Show up to 4 columns from profileData (skip routing email columns to save space)
   const profileKeys = employees.length
-    ? Object.keys(employees[0]).filter((k) => !coreKeys.has(k)).slice(0, 3)
+    ? Object.keys(employees[0]?.profileData || {})
+        .filter((k) => !/e?mail/i.test(k))
+        .slice(0, 4)
     : [];
 
   return (
@@ -282,7 +284,7 @@ function EmployeeTable({ roles, triggerRoleKey }) {
                   <td className="px-4 py-3 font-mono text-xs text-slate-600">{emp.empCode}</td>
                   <td className="px-4 py-3 font-medium text-slate-800">{emp.empName}</td>
                   {profileKeys.map((k) => (
-                    <td key={k} className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">{String(emp[k] ?? '—')}</td>
+                    <td key={k} className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">{String(emp.profileData?.[k] ?? '—')}</td>
                   ))}
                   <td className="px-4 py-3">
                     {emp.active !== false

@@ -16,9 +16,13 @@ export default async function handler(req, res) {
       if (!pair) return res.status(404).json({ error: 'Token not found' });
 
       const role = await getRole(pair.roleKey);
-      const questions = role?.questions
-        ? (Array.isArray(role.questions) ? role.questions : [])
-        : [];
+      // Normalise to camelCase for the form page
+      const questions = (Array.isArray(role?.questions) ? role.questions : []).map((q) => ({
+        key:       q.question_key  || q.key,
+        label:     q.question_label || q.label,
+        fieldType: q.field_type    || q.fieldType || 'rating',
+        order:     q.display_order || q.order || 0,
+      })).sort((a, b) => a.order - b.order);
 
       // Return safe pair fields — include rmAnswers for BH reference, no rmToken
       const safePair = {

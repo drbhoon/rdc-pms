@@ -41,16 +41,29 @@ function CopyBtn({ text, label }) {
 }
 
 // ── Launch modal ──────────────────────────────────────────────────────────────
-function LaunchModal({ employee, cycle, roleKey, onClose, onLaunched }) {
-  const [form, setForm] = useState({ rmName: '', rmEmail: '', bhName: '', bhEmail: '' });
+// role includes rmNameCol / rmEmailCol / bhNameCol / bhEmailCol so we can
+// auto-populate from employee.profileData (stored during bulk upload).
+function LaunchModal({ employee, cycle, roleKey, role, onClose, onLaunched }) {
+  const pd = employee.profileData || {};
+
+  const [form, setForm] = useState({
+    rmName:  String(pd[role?.rmNameCol]  || ''),
+    rmEmail: String(pd[role?.rmEmailCol] || ''),
+    bhName:  String(pd[role?.bhNameCol]  || ''),
+    bhEmail: String(pd[role?.bhEmailCol] || ''),
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
+
+  const autoFilled = role?.rmNameCol && (
+    form.rmName || form.rmEmail || form.bhName || form.bhEmail
+  );
 
   function set(field, val) { setForm((f) => ({ ...f, [field]: val })); }
 
   async function handleConfirm() {
     if (!form.rmName || !form.rmEmail || !form.bhName || !form.bhEmail) {
-      return setError('All fields are required.');
+      return setError('All four fields are required.');
     }
     setSaving(true);
     setError('');
@@ -83,7 +96,7 @@ function LaunchModal({ employee, cycle, roleKey, onClose, onLaunched }) {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-base font-semibold text-slate-800">Launch Assessment</h3>
-            <p className="text-xs text-slate-500 mt-0.5">{employee.empName} ({employee.empCode})</p>
+            <p className="text-xs text-slate-500 mt-0.5">{employee.empName} ({employee.empCode}) · {cycle}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
             <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
@@ -91,6 +104,12 @@ function LaunchModal({ employee, cycle, roleKey, onClose, onLaunched }) {
             </svg>
           </button>
         </div>
+
+        {autoFilled && (
+          <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700">
+            Pre-filled from employee data — verify before launching.
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{error}</div>
@@ -100,13 +119,19 @@ function LaunchModal({ employee, cycle, roleKey, onClose, onLaunched }) {
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Reporting Manager</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-slate-600 mb-1">RM Name <span className="text-red-500">*</span></label>
+              <label className="block text-xs text-slate-600 mb-1">
+                RM Name <span className="text-red-500">*</span>
+                {role?.rmNameCol && <span className="ml-1 text-slate-400">({role.rmNameCol})</span>}
+              </label>
               <input value={form.rmName} onChange={(e) => set('rmName', e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 placeholder="Full name" />
             </div>
             <div>
-              <label className="block text-xs text-slate-600 mb-1">RM Email <span className="text-red-500">*</span></label>
+              <label className="block text-xs text-slate-600 mb-1">
+                RM Email <span className="text-red-500">*</span>
+                {role?.rmEmailCol && <span className="ml-1 text-slate-400">({role.rmEmailCol})</span>}
+              </label>
               <input type="email" value={form.rmEmail} onChange={(e) => set('rmEmail', e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 placeholder="rm@rdcconcrete.com" />
@@ -115,13 +140,19 @@ function LaunchModal({ employee, cycle, roleKey, onClose, onLaunched }) {
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide pt-1">Business Head</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-slate-600 mb-1">BH Name <span className="text-red-500">*</span></label>
+              <label className="block text-xs text-slate-600 mb-1">
+                BH Name <span className="text-red-500">*</span>
+                {role?.bhNameCol && <span className="ml-1 text-slate-400">({role.bhNameCol})</span>}
+              </label>
               <input value={form.bhName} onChange={(e) => set('bhName', e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 placeholder="Full name" />
             </div>
             <div>
-              <label className="block text-xs text-slate-600 mb-1">BH Email <span className="text-red-500">*</span></label>
+              <label className="block text-xs text-slate-600 mb-1">
+                BH Email <span className="text-red-500">*</span>
+                {role?.bhEmailCol && <span className="ml-1 text-slate-400">({role.bhEmailCol})</span>}
+              </label>
               <input type="email" value={form.bhEmail} onChange={(e) => set('bhEmail', e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 placeholder="bh@rdcconcrete.com" />
@@ -160,7 +191,7 @@ export default function AssessmentsPage({ user }) {
 
   const host = typeof window !== 'undefined' ? window.location.origin : '';
 
-  // Load roles
+  // Load roles (includes routing column names for auto-fill)
   useEffect(() => {
     fetch('/api/admin/roles')
       .then((r) => r.json())
@@ -216,6 +247,9 @@ export default function AssessmentsPage({ user }) {
   // Map pair data by empCode for quick lookup
   const pairMap = {};
   pairs.forEach((p) => { pairMap[p.empCode] = p; });
+
+  // Current role object (includes routing column names)
+  const currentRole = roles.find((r) => r.roleKey === roleKey) || null;
 
   return (
     <AdminLayout title="Cycle Management" user={user}>
@@ -293,8 +327,8 @@ export default function AssessmentsPage({ user }) {
               <tbody className="divide-y divide-slate-100">
                 {employees.map((emp) => {
                   const pair = pairMap[emp.empCode];
-                  const profileSummary = Object.entries(emp)
-                    .filter(([k]) => !['empCode', 'empName', 'active', 'id', 'roleKey', 'createdAt', 'updatedAt'].includes(k))
+                  const profileSummary = Object.entries(emp.profileData || {})
+                    .filter(([, v]) => v != null && v !== '')
                     .slice(0, 2)
                     .map(([k, v]) => `${k}: ${v}`)
                     .join(' · ');
@@ -346,6 +380,7 @@ export default function AssessmentsPage({ user }) {
           employee={launchTarget}
           cycle={cycle}
           roleKey={roleKey}
+          role={currentRole}
           onClose={() => setLaunchTarget(null)}
           onLaunched={loadData}
         />

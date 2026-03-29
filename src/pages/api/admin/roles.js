@@ -14,7 +14,14 @@ export default async function handler(req, res) {
   try {
     const roles = await getAllRoles();
     return res.status(200).json({
-      roles: roles.map((r) => ({ roleKey: r.roleKey, roleLabel: r.roleLabel })),
+      roles: roles.map((r) => ({
+        roleKey:    r.roleKey,
+        roleLabel:  r.roleLabel,
+        rmNameCol:  r.rmNameCol  || null,
+        rmEmailCol: r.rmEmailCol || null,
+        bhNameCol:  r.bhNameCol  || null,
+        bhEmailCol: r.bhEmailCol || null,
+      })),
     });
   } catch (err) {
     console.error('[admin/roles]', err);
