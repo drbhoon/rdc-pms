@@ -193,6 +193,7 @@ export default function AssessmentsPage({ user }) {
   const [selected, setSelected]       = useState(new Set());
   const [bulkLaunching, setBulkLaunching] = useState(false);
   const [bulkResult, setBulkResult]   = useState(null); // { ok, skipped, errors }
+  const [deleting, setDeleting]       = useState(null); // pairId being deleted
 
   const host = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -277,6 +278,26 @@ export default function AssessmentsPage({ user }) {
       setSelected(new Set());
     } else {
       setSelected(new Set(unlaunchedEmps.map((e) => e.empCode)));
+    }
+  }
+
+  // Delete a PENDING_RM pair
+  async function handleDeletePair(pairId, empName) {
+    if (!confirm(`Delete assessment for ${empName}?\n\nThis will remove the pair record. You can relaunch afterward if needed.`))
+      return;
+
+    setDeleting(pairId);
+    try {
+      const res = await fetch(`/api/admin/pairs/delete?pairId=${encodeURIComponent(pairId)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+      loadData();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -448,15 +469,23 @@ export default function AssessmentsPage({ user }) {
                       <td className="px-4 py-3">
                         {pair?.bhToken ? <CopyBtn text={`${host}/form/bh/${pair.bhToken}`} label="BH Link" /> : <span className="text-slate-300 text-xs">—</span>}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 space-x-2 flex items-center">
                         {!pair ? (
                           <button onClick={() => setLaunchTarget(emp)}
                             className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 transition-all"
                             title="Edit routing info before launching">
                             Edit & Launch
                           </button>
+                        ) : pair.status === 'PENDING_RM' ? (
+                          <button
+                            onClick={() => handleDeletePair(pair.pairId, emp.empName)}
+                            disabled={deleting === pair.pairId}
+                            className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-40 transition-all"
+                            title="Delete this PENDING assessment to relaunch or reroute">
+                            {deleting === pair.pairId ? '…' : 'Delete'}
+                          </button>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">Active</span>
+                          <span className="text-xs text-slate-400 italic">In progress</span>
                         )}
                       </td>
                     </tr>

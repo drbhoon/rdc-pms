@@ -39,9 +39,9 @@ export default async function handler(req, res) {
       };
 
       // Fetch employee profile
-      let employee = null;
+      let rawProfileData = {};
       if (pair.employee) {
-        employee = { profileData: pair.employee.profileData || {} };
+        rawProfileData = pair.employee.profileData || {};
       } else {
         try {
           const { prisma } = await import('../../../../lib/db');
@@ -49,13 +49,24 @@ export default async function handler(req, res) {
             where: { empCode_roleKey: { empCode: pair.empCode, roleKey: pair.roleKey } },
             select: { profileData: true },
           });
-          if (emp) employee = { profileData: emp.profileData || {} };
-        } catch {
-          // non-critical — continue without profile
-        }
+          if (emp) rawProfileData = emp.profileData || {};
+        } catch { /* non-critical */ }
       }
 
-      return res.status(200).json({ pair: safePair, questions, employee });
+      // Strip question columns + routing cols + XLSX empty placeholders from profile card
+      const questionKeySet = new Set(questions.map((q) => q.key.toLowerCase().trim()));
+      const routingCols = new Set(
+        [role?.rmNameCol, role?.rmEmailCol, role?.bhNameCol, role?.bhEmailCol].filter(Boolean)
+      );
+      const profileData = Object.fromEntries(
+        Object.entries(rawProfileData).filter(([k]) =>
+          !questionKeySet.has(k.toLowerCase().trim()) &&
+          !routingCols.has(k) &&
+          !/^__EMPTY/.test(k)
+        )
+      );
+
+      return res.status(200).json({ pair: safePair, questions, employee: { profileData } });
     } catch (err) {
       console.error('[form/bh GET]', err);
       return res.status(500).json({ error: 'Internal server error' });

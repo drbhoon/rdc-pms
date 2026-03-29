@@ -137,6 +137,12 @@ export async function submitBhAnswers(pairId, answers, performedBy) {
   });
 }
 
+export async function deletePair(pairId) {
+  // Delete audit logs first (FK constraint), then the pair
+  await prisma.auditLog.deleteMany({ where: { pairId } });
+  return prisma.assessmentPair.delete({ where: { pairId } });
+}
+
 export async function unlockPair(pairId, performedBy) {
   return prisma.assessmentPair.update({
     where: { pairId },

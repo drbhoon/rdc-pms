@@ -43,9 +43,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `No template found for role "${roleKey}". Create the template first.` });
     }
 
-    // Build set of question keys to exclude from employee profileData
+    // Build set of question keys to exclude (normalised: lowercase + trimmed)
+    // Use both exact and normalised for robust matching across Excel re-exports
     const questionKeys = new Set(
-      (template.questions || []).map((q) => q.question_key)
+      (template.questions || []).flatMap((q) => {
+        const k = q.question_key || '';
+        return [k, k.toLowerCase().trim()];
+      })
     );
 
     // ── Find empCode / empName column headers ───────────────────────────────
@@ -89,8 +93,10 @@ export default async function handler(req, res) {
         for (const [k, v] of Object.entries(row)) {
           // Skip empCode/empName identity cols (already captured above)
           if (k === empCodeHeader || k === empNameHeader) continue;
-          // Skip assessment question columns — they belong in AssessmentPair answers
-          if (questionKeys.has(k)) continue;
+          // Skip assessment question columns (case-insensitive + trimmed match)
+          if (questionKeys.has(k) || questionKeys.has(k.toLowerCase().trim())) continue;
+          // Skip XLSX placeholder empty-header columns (__EMPTY, __EMPTY_1 …)
+          if (/^__EMPTY/.test(k)) continue;
           profileData[k] = v;
         }
 
