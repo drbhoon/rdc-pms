@@ -189,6 +189,11 @@ export default function AssessmentsPage({ user }) {
   const [loading, setLoading]     = useState(false);
   const [launchTarget, setLaunchTarget] = useState(null);
 
+  // Bulk selection
+  const [selected, setSelected]       = useState(new Set());
+  const [bulkLaunching, setBulkLaunching] = useState(false);
+  const [bulkResult, setBulkResult]   = useState(null); // { ok, skipped, errors }
+
   const host = typeof window !== 'undefined' ? window.location.origin : '';
 
   // Load roles (includes routing column names for auto-fill)
@@ -206,6 +211,7 @@ export default function AssessmentsPage({ user }) {
   useEffect(() => {
     if (!roleKey) return;
     setCycle('');
+    setSelected(new Set());
     fetch(`/api/admin/cycles?roleKey=${encodeURIComponent(roleKey)}`)
       .then((r) => r.json())
       .then((d) => {
@@ -219,6 +225,8 @@ export default function AssessmentsPage({ user }) {
   const loadData = useCallback(() => {
     if (!roleKey || !cycle) return;
     setLoading(true);
+    setSelected(new Set());
+    setBulkResult(null);
     const qs = `roleKey=${encodeURIComponent(roleKey)}&cycle=${encodeURIComponent(cycle)}`;
     Promise.all([
       fetch(`/api/admin/employees?roleKey=${encodeURIComponent(roleKey)}`).then((r) => r.json()),
@@ -237,9 +245,7 @@ export default function AssessmentsPage({ user }) {
   function handleAddCycle() {
     const name = newCycleName.trim();
     if (!name) return;
-    if (!cycles.includes(name)) {
-      setCycles((prev) => [name, ...prev]);
-    }
+    if (!cycles.includes(name)) setCycles((prev) => [name, ...prev]);
     setCycle(name);
     setNewCycleName('');
   }
@@ -251,59 +257,143 @@ export default function AssessmentsPage({ user }) {
   // Current role object (includes routing column names)
   const currentRole = roles.find((r) => r.roleKey === roleKey) || null;
 
+  // Employees without a pair yet (eligible for launch)
+  const unlaunchedEmps = employees.filter((e) => !pairMap[e.empCode]);
+
+  // Checkbox helpers
+  const allUnlaunchedSelected = unlaunchedEmps.length > 0 &&
+    unlaunchedEmps.every((e) => selected.has(e.empCode));
+
+  function toggleSelect(empCode) {
+    setSelected((prev) => {
+      const s = new Set(prev);
+      s.has(empCode) ? s.delete(empCode) : s.add(empCode);
+      return s;
+    });
+  }
+
+  function toggleAll() {
+    if (allUnlaunchedSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(unlaunchedEmps.map((e) => e.empCode)));
+    }
+  }
+
+  // Bulk launch — uses profileData routing columns directly, no modal
+  async function handleBulkLaunch() {
+    if (!cycle || selected.size === 0) return;
+    setBulkLaunching(true);
+    setBulkResult(null);
+
+    const targets = employees.filter((e) => selected.has(e.empCode) && !pairMap[e.empCode]);
+    let ok = 0, skipped = 0;
+    const errors = [];
+
+    for (const emp of targets) {
+      const pd = emp.profileData || {};
+      const rmName  = String(pd[currentRole?.rmNameCol]  || '').trim();
+      const rmEmail = String(pd[currentRole?.rmEmailCol] || '').trim();
+      const bhName  = String(pd[currentRole?.bhNameCol]  || '').trim();
+      const bhEmail = String(pd[currentRole?.bhEmailCol] || '').trim();
+
+      if (!rmName || !rmEmail || !bhName || !bhEmail) {
+        skipped++;
+        errors.push(`${emp.empName} (${emp.empCode}): missing routing data`);
+        continue;
+      }
+
+      try {
+        const res = await fetch('/api/admin/pairs/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roleKey, cycle, empCode: emp.empCode, empName: emp.empName, rmName, rmEmail, bhName, bhEmail }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        ok++;
+      } catch (e) {
+        skipped++;
+        errors.push(`${emp.empName}: ${e.message}`);
+      }
+    }
+
+    setBulkResult({ ok, skipped, errors });
+    setBulkLaunching(false);
+    loadData();
+  }
+
+  // Profile summary: show up to 3 non-email fields prioritising routing names
+  function profileSummary(emp) {
+    const pd = emp.profileData || {};
+    const r  = currentRole;
+    // Priority: rm name, bh name, then other non-email fields
+    const priority = [r?.rmNameCol, r?.bhNameCol].filter(Boolean);
+    const others   = Object.keys(pd).filter((k) => !priority.includes(k) && !/e?mail/i.test(k));
+    const keys     = [...priority, ...others].filter((k) => pd[k] != null && pd[k] !== '').slice(0, 3);
+    return keys.map((k) => `${k}: ${pd[k]}`).join(' · ') || '—';
+  }
+
   return (
     <AdminLayout title="Cycle Management" user={user}>
       {/* ── Top controls ── */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Role</label>
-          <select
-            value={roleKey}
-            onChange={(e) => setRoleKey(e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-w-[150px]"
-          >
-            {roles.map((r) => (
-              <option key={r.roleKey} value={r.roleKey}>{r.roleLabel || r.roleKey}</option>
-            ))}
+          <select value={roleKey} onChange={(e) => setRoleKey(e.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-w-[150px]">
+            {roles.map((r) => <option key={r.roleKey} value={r.roleKey}>{r.roleLabel || r.roleKey}</option>)}
           </select>
         </div>
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Cycle</label>
-          <select
-            value={cycle}
-            onChange={(e) => setCycle(e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-w-[150px]"
-          >
-            {cycles.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
+          <select value={cycle} onChange={(e) => setCycle(e.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-w-[150px]">
+            {cycles.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <input
-            value={newCycleName}
-            onChange={(e) => setNewCycleName(e.target.value)}
+          <input value={newCycleName} onChange={(e) => setNewCycleName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddCycle()}
             placeholder="New cycle name…"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-44"
-          />
-          <button
-            onClick={handleAddCycle}
-            disabled={!newCycleName.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-44" />
+          <button onClick={handleAddCycle} disabled={!newCycleName.trim()}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
             + New Cycle
           </button>
         </div>
       </div>
 
+      {/* ── Bulk result banner ── */}
+      {bulkResult && (
+        <div className={`mb-4 rounded-xl px-5 py-3 text-sm border ${bulkResult.skipped === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+          <span className="font-semibold">{bulkResult.ok} launched</span>
+          {bulkResult.skipped > 0 && <span className="ml-2 text-amber-700">{bulkResult.skipped} skipped — {bulkResult.errors.join('; ')}</span>}
+          {bulkResult.ok > 0 && <span className="ml-2 text-emerald-700">· RM emails sent.</span>}
+        </div>
+      )}
+
       {/* ── Main table ── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-700">
             {cycle ? `${roleKey} — ${cycle}` : 'Select a role and cycle'}
           </h2>
-          <span className="text-xs text-slate-400">{employees.length} employees</span>
+          <div className="flex items-center gap-3 ml-auto">
+            <span className="text-xs text-slate-400">{employees.length} employees</span>
+            {selected.size > 0 && (
+              <button
+                onClick={handleBulkLaunch}
+                disabled={bulkLaunching}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+              >
+                {bulkLaunching
+                  ? <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Launching…</>
+                  : `🚀 Launch Selected (${selected.size})`
+                }
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -317,49 +407,53 @@ export default function AssessmentsPage({ user }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Emp Code', 'Name', 'Profile', 'Status', 'RM Link', 'BH Link', 'Action'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
-                      {h}
-                    </th>
+                  <th className="px-4 py-3 w-10">
+                    {unlaunchedEmps.length > 0 && (
+                      <input type="checkbox" checked={allUnlaunchedSelected} onChange={toggleAll}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        title="Select all unlaunched" />
+                    )}
+                  </th>
+                  {['Emp Code', 'Name', 'RM · BH · Profile', 'Status', 'RM Link', 'BH Link', 'Action'].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {employees.map((emp) => {
-                  const pair = pairMap[emp.empCode];
-                  const profileSummary = Object.entries(emp.profileData || {})
-                    .filter(([, v]) => v != null && v !== '')
-                    .slice(0, 2)
-                    .map(([k, v]) => `${k}: ${v}`)
-                    .join(' · ');
+                  const pair    = pairMap[emp.empCode];
+                  const canSelect = !pair;
+                  const isSelected = selected.has(emp.empCode);
 
                   return (
-                    <tr key={emp.id || emp.empCode} className="hover:bg-slate-50 transition-colors">
+                    <tr key={emp.id || emp.empCode}
+                      className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                      <td className="px-4 py-3 w-10">
+                        {canSelect && (
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(emp.empCode)}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-600">{emp.empCode}</td>
                       <td className="px-4 py-3 font-medium text-slate-800">{emp.empName}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">{profileSummary || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500 max-w-sm truncate" title={profileSummary(emp)}>
+                        {profileSummary(emp)}
+                      </td>
                       <td className="px-4 py-3">
                         {pair ? <StatusBadge status={pair.status} /> : <span className="text-xs text-slate-400">Not launched</span>}
                       </td>
                       <td className="px-4 py-3">
-                        {pair?.rmToken
-                          ? <CopyBtn text={`${host}/form/rm/${pair.rmToken}`} label="RM Link" />
-                          : <span className="text-slate-300 text-xs">—</span>
-                        }
+                        {pair?.rmToken ? <CopyBtn text={`${host}/form/rm/${pair.rmToken}`} label="RM Link" /> : <span className="text-slate-300 text-xs">—</span>}
                       </td>
                       <td className="px-4 py-3">
-                        {pair?.bhToken
-                          ? <CopyBtn text={`${host}/form/bh/${pair.bhToken}`} label="BH Link" />
-                          : <span className="text-slate-300 text-xs">—</span>
-                        }
+                        {pair?.bhToken ? <CopyBtn text={`${host}/form/bh/${pair.bhToken}`} label="BH Link" /> : <span className="text-slate-300 text-xs">—</span>}
                       </td>
                       <td className="px-4 py-3">
                         {!pair ? (
-                          <button
-                            onClick={() => setLaunchTarget(emp)}
-                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-all"
-                          >
-                            Launch
+                          <button onClick={() => setLaunchTarget(emp)}
+                            className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 transition-all"
+                            title="Edit routing info before launching">
+                            Edit & Launch
                           </button>
                         ) : (
                           <span className="text-xs text-slate-400 italic">Active</span>
@@ -370,11 +464,17 @@ export default function AssessmentsPage({ user }) {
                 })}
               </tbody>
             </table>
+            {unlaunchedEmps.length > 0 && (
+              <div className="px-6 py-3 border-t border-slate-100 text-xs text-slate-400">
+                Tip: Check boxes to select employees, then click <strong>Launch Selected</strong> to bulk-launch using routing data from their profile.
+                Use <strong>Edit &amp; Launch</strong> to manually set or override routing info.
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* ── Launch modal ── */}
+      {/* ── Launch modal (single, with edit) ── */}
       {launchTarget && (
         <LaunchModal
           employee={launchTarget}

@@ -5,6 +5,7 @@
  * POST — submits RM answers and advances status to RM_SUBMITTED
  */
 import { getPairByRmToken, getRole, submitRmAnswers, appendAudit } from '../../../../lib/queries';
+import { sendBhLink } from '../../../../lib/mailer';
 
 export default async function handler(req, res) {
   const { token } = req.query;
@@ -89,6 +90,18 @@ export default async function handler(req, res) {
         performedBy: 'rm:' + pair.rmEmail,
         details:     {},
       });
+
+      // Send BH email now that RM has submitted
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+      sendBhLink({
+        bhName:  pair.bhName,
+        bhEmail: pair.bhEmail,
+        empName: pair.empName,
+        empCode: pair.empCode,
+        roleKey: pair.roleKey,
+        cycle:   pair.cycle,
+        formUrl: `${appUrl}/form/bh/${pair.bhToken}`,
+      }).catch((e) => console.error('[form/rm] BH email failed:', e.message));
 
       return res.status(200).json({ ok: true });
     } catch (err) {
