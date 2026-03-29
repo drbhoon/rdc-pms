@@ -15,12 +15,26 @@ export async function getRole(roleKey) {
   return prisma.roleTemplate.findUnique({ where: { roleKey } });
 }
 
-export async function upsertRole(roleKey, roleLabel, questions) {
+export async function upsertRole(roleKey, roleLabel, questions, opts = {}) {
+  const { filename, profileCols, rmNameCol, rmEmailCol, bhNameCol, bhEmailCol } = opts;
+  const data = {
+    roleLabel, questions,
+    ...(filename    !== undefined && { filename }),
+    ...(profileCols !== undefined && { profileCols }),
+    ...(rmNameCol   !== undefined && { rmNameCol }),
+    ...(rmEmailCol  !== undefined && { rmEmailCol }),
+    ...(bhNameCol   !== undefined && { bhNameCol }),
+    ...(bhEmailCol  !== undefined && { bhEmailCol }),
+  };
   return prisma.roleTemplate.upsert({
     where:  { roleKey },
-    update: { roleLabel, questions },
-    create: { roleKey, roleLabel, questions },
+    update: data,
+    create: { roleKey, ...data },
   });
+}
+
+export async function deleteRole(roleKey) {
+  return prisma.roleTemplate.delete({ where: { roleKey } });
 }
 
 // ── Employees ──────────────────────────────────────────────────────────────

@@ -11,12 +11,18 @@ datasource db {
 // One record per role. questions is a JSONB array:
 //   [{ key, label, fieldType: 'rating'|'narrative'|'number'|'date', order }]
 model RoleTemplate {
-  id        String   @id @default(cuid())
-  roleKey   String   @unique
-  roleLabel String
-  questions Json     @default("[]")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  roleKey    String   @unique
+  roleLabel  String
+  filename   String?            // original Excel filename
+  questions  Json     @default("[]")  // [{question_key, question_label, field_type, display_order}]
+  profileCols Json?             // [{key, label, field_type}] — employee profile columns
+  rmNameCol  String?            // header that holds reviewer (RM/BM) name
+  rmEmailCol String?            // header that holds reviewer email
+  bhNameCol  String?            // header that holds approver (BH) name
+  bhEmailCol String?            // header that holds approver email
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   employees Employee[]
   pairs     AssessmentPair[]
